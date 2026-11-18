@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Snake Battle Arena 3.0</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #090d16;
+            color: #f8fafc;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 500px;
+            padding: 8px 15px;
+            background: rgba(15, 23, 42, 0.9);
+            border-bottom: 2px solid #1e293b;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+        .stat-item {
+            color: #38bdf8;
+            text-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+        }
+        #gameCanvas {
+            background: #020617;
+            border-bottom: 3px solid #38bdf8;
+            display: block;
+            box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+        }
+        .ui-container {
+            position: absolute;
+            bottom: 10px;
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            pointer-events: none;
+        }
+        .joystick-base {
+            width: 110px;
+            height: 110px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid rgba(56, 189, 248, 0.3);
+            border-radius: 50%;
+            position: relative;
+            pointer-events: auto;
+            touch-action: none;
+        }
+        .joystick-stick {
+            width: 50px;
+            height: 50px;
+            background: rgba(56, 189, 248, 0.5);
+            border: 2px solid #38bdf8;
+            border-radius: 50%;
+            position: absolute;
+            top: 30px;
+            left: 30px;
+            box-shadow: 0 0 10px #38bdf8;
+        }
+        .action-btns {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            pointer-events: auto;
+        }
+        .boost-btn {
+            background: linear-gradient(135deg, #f59e0b, #ef4444);
+            color: white;
+            border: none;
+            padding: 15px 22px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 30px;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.5);
+            cursor: pointer;
+            outline: none;
+        }
+        .boost-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="stat-item">স্কোর: <span id="score">0</span></div>
+        <div class="stat-item">ওয়েভ: <span id="wave">1</span></div>
+        <div class="stat-item">শত্রু বাকি: <span id="enemiesLeft">0</span></div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="ui-container">
+        <!-- ভার্চুয়াল জয়স্টিক -->
+        <div class="joystick-base" id="joystickBase">
+            <div class="joystick-stick" id="joystickStick"></div>
+        </div>
+        <!-- বুস্ট বাটন -->
+        <div class="action-btns">
+            <button class="boost-btn" id="boostBtn">⚡ বুস্ট</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // ক্যানভাস সাইজ স্ক্রিন অনুযায়ী সেট করা
+        function resizeCanvas() {
+            canvas.width = window.innerWidth > 500 ? 500 : window.innerWidth;
+            canvas.height = window.innerHeight - 150;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        let score = 0;
+        let wave = 1;
+        let gameRunning = true;
+
+        // প্লেয়ার সাপ
+        let player = {
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            radius: 10,
+            angle: 0,
+            speed: 3,
+            normalSpeed: 3,
+            boostSpeed: 6,
+            isBoosting: false,
+            body: [],
+            length: 25,
+            color: "#22c55e"
+        };
+
+        // ইনিশিয়ালাইজ প্লেয়ার বডি
+        for (let i = 0; i < player.length; i++) {
+            player.body.push({ x: player.x - i * 3, y: player.y });
+        }
+
+        let foods = [];
+        let enemies = [];
+
+        // খাবার জেনারেট করা
+        function spawnFoods(count) {
+            for (let i = 0; i < count; i++) {
+                foods.push({
+                    x: Math.random() * (canvas.width - 20) + 10,
+                    y: Math.random() * (canvas.height - 20) + 10,
+                    radius: 4,
+                    color: `hsl(${Math.random() * 360}, 80%, 60%)`
+                });
+            }
+        }
+
+        // শত্রু সাপ জেনারেট করা (বুদ্ধিমান ও কঠিন এআই)
+        function spawnEnemies() {
+            enemies = [];
+            let enemyCount = 3 + wave; // ওয়েভ বাড়লে শত্রু বাড়বে
+            for (let i = 0; i < enemyCount; i++) {
+                let eType = (i % 3 === 0) ? 'hunter' : (i % 3 === 1) ? 'speed' : 'normal';
+                if(wave % 3 === 0 && i === 0) eType = 'boss'; // প্রতি ৩ ওয়েভে বস সাপ
+
+                let eLength = eType === 'boss' ? 60 : 20 + wave * 5;
+                let eBody = [];
+                let startX = Math.random() * (canvas.width - 100) + 50;
+                let startY = Math.random() * (canvas.height - 100) + 50;
+
+                for (let j = 0; j < eLength; j++) {
+                    eBody.push({ x: startX - j * 3, y: startY });
+                }
+
+                enemies.push({
+                    x: startX,
+                    y: startY,
+                    radius: eType === 'boss' ? 16 : 10,
+                    angle: Math.random() * Math.PI * 2,
+                    speed: eType === 'speed' ? 3.8 : (eType === 'boss' ? 2.5 : 2.2),
+                    body: eBody,
+                    length: eLength,
+                    type: eType,
+                    color: eType === 'boss' ? '#ef4444' : (eType === 'hunter' ? '#a855f7' : '#f97316')
+                });
+            }
+            document.getElementById("wave").innerText = wave;
+            document.getElementById("enemiesLeft").innerText = enemies.length;
+        }
+
+        spawnFoods(40);
+        spawnEnemies();
+
+        // জয়স্টিক কন্ট্রোল লজিক
+        const joystickBase = document.getElementById("joystickBase");
+        const joystickStick = document.getElementById("joystickStick");
+        let isTouching = false;
+        let touchCenterX = 0;
+        let touchCenterY = 0;
+
+        joystickBase.addEventListener("touchstart", (e) => {
+            isTouching = true;
+            const rect = joystickBase.getBoundingClientRect();
+            touchCenterX = rect.left + rect.width / 2;
+            touchCenterY = rect.top + rect.height / 2;
+        });
+
+        window.addEventListener("touchmove", (e) => {
+            if (!isTouching) return;
+            const touch = e.touches[0];
+            let dx = touch.clientX - touchCenterX;
+            let dy = touch.clientY - touchCenterY;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+            let maxDist = 35;
+
+            if (distance > maxDist) {
+                dx = (dx / distance) * maxDist;
+                dy = (dy / distance) * maxDist;
+            }
+
+            joystickStick.style.transform = `translate(${dx}px, ${dy}px)`;
+            if (distance > 5) {
+                player.angle = Math.atan2(dy, dx);
+            }
+        });
+
+        window.addEventListener("touchend", () => {
+            isTouching = false;
+            joystickStick.style.transform = `translate(0px, 0px)`;
+        });
+
+        // বুস্ট বাটন লজিক
+        const boostBtn = document.getElementById("boostBtn");
+        boostBtn.addEventListener("touchstart", () => { player.isBoosting = true; player.speed = player.boostSpeed; });
+        boostBtn.addEventListener("touchend", () => { player.isBoosting = false; player.speed = player.normalSpeed; });
+
+        // গেমের মেইন লুপ
+        function update() {
+            if (!gameRunning) return;
+
+            // প্লেয়ার মুভমেন্ট
+            player.x += Math.cos(player.angle) * player.speed;
+            player.y += Math.sin(player.angle) * player.speed;
+
+            // ক্যানভাস বর্ডার চেক (দেয়ালে লাগলে গেম ওভার)
+            if (player.x < 0 || player.x > canvas.width || player.y < 0 || player.y > canvas.height) {
+                gameOver();
+                return;
+            }
+
+            player.body.unshift({ x: player.x, y: player.y });
+            if (player.body.length > player.length) {
+                player.body.pop();
+            }
+
+            // খাবার খাওয়া চেক
+            foods.forEach((food, index) => {
+                let dist = Math.hypot(player.x - food.x, player.y - food.y);
+                if (dist < player.radius + food.radius) {
+                    foods.splice(index, 1);
+                    score += 10;
+                    player.length += 2;
+                    document.getElementById("score").innerText = score;
+                    foods.push({
+                        x: Math.random() * (canvas.width - 20) + 10,
+                        y: Math.random() * (canvas.height - 20) + 10,
+                        radius: 4,
+                        color: `hsl(${Math.random() * 360}, 80%, 60%)`
+                    });
+                }
+            });
+
+            // শত্রু সাপ আপডেট ও এআই লজিক
+            enemies.forEach((enemy, eIndex) => {
+                // হান্টার সাপ প্লেয়ারকে টার্গেট করবে
+                if (enemy.type === 'hunter' || enemy.type === 'boss') {
+                    let targetAngle = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+                    enemy.angle += (targetAngle - enemy.angle) * 0.05; // মসৃণভাবে ঘুরবে
+                } else {
+                    if (Math.random() < 0.03) enemy.angle += (Math.random() - 0.5) * 2;
+                }
+
+                enemy.x += Math.cos(enemy.angle) * enemy.speed;
+                enemy.y += Math.sin(enemy.angle) * enemy.speed;
+
+                // বর্ডার হিট করলে শত্রু দিক বদলাবে
+                if (enemy.x < 20 || enemy.x > canvas.width - 20) enemy.angle = Math.PI - enemy.angle;
+                if (enemy.y < 20 || enemy.y > canvas.height - 20) enemy.angle = -enemy.angle;
+
+                enemy.body.unshift({ x: enemy.x, y: enemy.y });
+                if (enemy.body.length > enemy.length) enemy.body.pop();
+
+                // প্লেয়ারের সাথে শত্রুর সংঘর্ষ চেক
+                enemy.body.forEach((part) => {
+                    if (Math.hypot(player.x - part.x, player.y - part.y) < player.radius) {
+                        gameOver();
+                    }
+                });
+
+                // শত্রু সাপের মৃত্যু চেক (প্লেয়ার যদি শত্রুকে কেটে দেয়)
+                player.body.forEach((pPart) => {
+                    if (Math.hypot(pPart.x - enemy.x, pPart.y - enemy.y) < enemy.radius + 5) {
+                        // শত্রু মারা গেলে মাংস বা খাবার হয়ে যাবে
+                        score += 100;
+                        enemies.splice(eIndex, 1);
+                        document.getElementById("score").innerText = score;
+                        document.getElementById("enemiesLeft").innerText = enemies.length;
+
+                        if (enemies.length === 0) {
+                            wave++;
+                            spawnEnemies();
+                            spawnFoods(30);
+                        }
+                    }
+                });
+            });
+        }
+
+        function draw() {
+            ctx.fillStyle = "#020617";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // খাবার ড্র করা
+            foods.forEach(f => {
+                ctx.fillStyle = f.color;
+                ctx.beginPath();
+                ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // শত্রু সাপ ড্র করা
+            enemies.forEach(enemy => {
+                enemy.body.forEach((part, idx) => {
+                    ctx.fillStyle = enemy.color;
+                    ctx.beginPath();
+                    ctx.arc(part.x, part.y, idx === 0 ? enemy.radius + 2 : enemy.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+            });
+
+            // প্লেয়ার সাপ ড্র করা
+            player.body.forEach((part, idx) => {
+                ctx.fillStyle = idx === 0 ? "#4ade80" : "#22c55e";
+                ctx.shadowBlur = idx === 0 ? 12 : 0;
+                ctx.shadowColor = "#22c55e";
+                ctx.beginPath();
+                ctx.arc(part.x, part.y, idx === 0 ? player.radius + 2 : player.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            });
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            if (gameRunning) requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = "#f8fafc";
+            ctx.font = "bold 28px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("খেলা শেষ!", canvas.width / 2, canvas.height / 2 - 30);
+
+            ctx.font = "16px sans-serif";
+            ctx.fillStyle = "#38bdf8";
+            ctx.fillText("সর্বমোট স্কোর: " + score, canvas.width / 2, canvas.height / 2 + 10);
+            ctx.fillText("পুনরায় খেলতে পেজ রিফ্রেশ করুন", canvas.width / 2, canvas.height / 2 + 50);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>
